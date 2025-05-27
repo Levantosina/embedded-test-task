@@ -33,7 +33,7 @@ const int PIN_BLUE = 6;
 // Пин для датчика температуры
 const int A0 = 0;
 //Топики для MQTT
-const char *RGB_TOPIC = "rgb/control";
+
 const char *ERROR_TOPIC = "embedded/errors";
 const char *EMBEDDED_CONTROL_TOPIC = "embedded/control";
 const char *PUBLISH_TOPIC = "embedded/pins/state";
@@ -103,7 +103,7 @@ void connect_callback(struct mosquitto *mosq, void *obj, int result)
         isConnected = true;
         reconnectAttempts = 0;
 
-        const char *subscribeTopics[] = {RGB_TOPIC, ERROR_TOPIC, EMBEDDED_CONTROL_TOPIC,
+        const char *subscribeTopics[] = {ERROR_TOPIC, EMBEDDED_CONTROL_TOPIC,
                                          PUBLISH_TOPIC, TEMPERATURE_TOPIC};
         // Подписываемся на топики после подключения
         for (const char *topic : subscribeTopics)
@@ -243,7 +243,7 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
         std::cout << "Received empty message" << std::endl;
         return;
     }
-
+    //Получаем топик и полезную нагрузку сообщения
     std::string topic(message->topic);
     std::string payload(static_cast<char *>(message->payload), message->payloadlen);
 
@@ -252,12 +252,13 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
     json response; //Обьявляем json объект для ответа
     try
     {
+        // Парсим JSON из полезной нагрузки
         json data = json::parse(payload);
 
-        // Проверяем, что полученные данные являются JSON-объектом
+        // Проверяем, что полученные данные являются JSON-объектом и на нужный топик
         if (topic == "embedded/control")
         {
-        
+            //// Извлекаем значение команды из JSON
             std::string command = data["command"];
 
             // Команда для перезапуска устройства
@@ -267,38 +268,25 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                 bool currentState = digitalRead(2);
                 digitalWrite(2, !currentState);
                 shouldRestart = true;
-
+                // // Выводим успешный ответ
                 response = {{"status", "OK"}, {"message", "Device will restart"}};
             }
-            // Команда для установки состояния пина
-            else if (command == "set_pin")
-            {
-                if (!data.contains("pin") || !data.contains("value"))
-                {
-                    publish_message(mosq, ERROR_TOPIC,
-                                    R"({"status":"ERROR","message":"Missing pin or value"})");
-                    return;
-                }
 
-                uint8_t pin = data["pin"].get<uint8_t>();
-                bool value = data["value"].get<bool>();
-
-                digitalWrite(pin, value);
-                response = {{"status", "OK"}, {"pin", pin}, {"value", value}};
-            }
+            //установка RGB 
             else if (command == "set_rgb")
             {
+                // Проверяем наличие red, green и blue в JSON
                 if (!data.contains("red") || !data.contains("green") || !data.contains("blue"))
                 {
                     publish_message(mosq, ERROR_TOPIC,
                                     R"({"status":"ERROR","message":"Missing RGB values"})");
                     return;
                 }
-
+                // Извлекаем значения RGB
                 int red = data["red"].get<int>();
                 int green = data["green"].get<int>();
                 int blue = data["blue"].get<int>();
-
+                //Установка диапазона от 0 до 255
                 if (red < 0 || red > 255 || green < 0 || green > 255 || blue < 0 || blue > 255)
                 {
                     publish_message(
@@ -307,10 +295,10 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
                     return;
                 }
                 
-            
+                //Вывод значений RGB
                 std::cout << "Setting RGB values: R=" << red << ", G=" << green << ", B=" << blue
                           << std::endl;
-
+                //Ответ
                 response = {{"status", "OK"}, {"red", red}, {"green", green}, {"blue", blue}};
             }
             else
@@ -323,6 +311,7 @@ void message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_
             publish_message(mosq, PUBLISH_TOPIC, response.dump());
         }
     }catch (const std::exception& e) {
+        //обработка исключения при парсинге
         std::cerr << "Error parsing JSON: " << e.what() << std::endl;
     }
 }
